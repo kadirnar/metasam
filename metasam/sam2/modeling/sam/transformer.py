@@ -11,18 +11,17 @@ from typing import Tuple, Type
 
 import torch
 import torch.nn.functional as F
-from torch import nn, Tensor
-
 from sam2.modeling.position_encoding import apply_rotary_enc, compute_axial_cis
-
 from sam2.modeling.sam2_utils import MLP
 from sam2.utils.misc import get_sdpa_settings
+from torch import Tensor, nn
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 OLD_GPU, USE_FLASH_ATTN, MATH_KERNEL_ON = get_sdpa_settings()
 
 
 class TwoWayTransformer(nn.Module):
+
     def __init__(
         self,
         depth: int,
@@ -33,8 +32,8 @@ class TwoWayTransformer(nn.Module):
         attention_downsample_rate: int = 2,
     ) -> None:
         """
-        A transformer decoder that attends to an input image using
-        queries whose positional embedding is supplied.
+        A transformer decoder that attends to an input image using queries whose positional embedding is
+        supplied.
 
         Args:
           depth (int): number of layers in the transformer
@@ -60,12 +59,10 @@ class TwoWayTransformer(nn.Module):
                     activation=activation,
                     attention_downsample_rate=attention_downsample_rate,
                     skip_first_layer_pe=(i == 0),
-                )
-            )
+                ))
 
         self.final_attn_token_to_image = Attention(
-            embedding_dim, num_heads, downsample_rate=attention_downsample_rate
-        )
+            embedding_dim, num_heads, downsample_rate=attention_downsample_rate)
         self.norm_final_attn = nn.LayerNorm(embedding_dim)
 
     def forward(
@@ -116,6 +113,7 @@ class TwoWayTransformer(nn.Module):
 
 
 class TwoWayAttentionBlock(nn.Module):
+
     def __init__(
         self,
         embedding_dim: int,
@@ -143,25 +141,20 @@ class TwoWayAttentionBlock(nn.Module):
         self.norm1 = nn.LayerNorm(embedding_dim)
 
         self.cross_attn_token_to_image = Attention(
-            embedding_dim, num_heads, downsample_rate=attention_downsample_rate
-        )
+            embedding_dim, num_heads, downsample_rate=attention_downsample_rate)
         self.norm2 = nn.LayerNorm(embedding_dim)
 
-        self.mlp = MLP(
-            embedding_dim, mlp_dim, embedding_dim, num_layers=2, activation=activation
-        )
+        self.mlp = MLP(embedding_dim, mlp_dim, embedding_dim, num_layers=2, activation=activation)
         self.norm3 = nn.LayerNorm(embedding_dim)
 
         self.norm4 = nn.LayerNorm(embedding_dim)
         self.cross_attn_image_to_token = Attention(
-            embedding_dim, num_heads, downsample_rate=attention_downsample_rate
-        )
+            embedding_dim, num_heads, downsample_rate=attention_downsample_rate)
 
         self.skip_first_layer_pe = skip_first_layer_pe
 
-    def forward(
-        self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
-    ) -> Tuple[Tensor, Tensor]:
+    def forward(self, queries: Tensor, keys: Tensor, query_pe: Tensor,
+                key_pe: Tensor) -> Tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
             queries = self.self_attn(q=queries, k=queries, v=queries)
@@ -194,9 +187,8 @@ class TwoWayAttentionBlock(nn.Module):
 
 
 class Attention(nn.Module):
-    """
-    An attention layer that allows for downscaling the size of the embedding
-    after projection to queries, keys, and values.
+    """An attention layer that allows for downscaling the size of the embedding after projection to queries,
+    keys, and values.
     """
 
     def __init__(
@@ -212,9 +204,7 @@ class Attention(nn.Module):
         self.kv_in_dim = kv_in_dim if kv_in_dim is not None else embedding_dim
         self.internal_dim = embedding_dim // downsample_rate
         self.num_heads = num_heads
-        assert (
-            self.internal_dim % num_heads == 0
-        ), "num_heads must divide embedding_dim."
+        assert (self.internal_dim % num_heads == 0), "num_heads must divide embedding_dim."
 
         self.q_proj = nn.Linear(embedding_dim, self.internal_dim)
         self.k_proj = nn.Linear(self.kv_in_dim, self.internal_dim)
@@ -247,10 +237,10 @@ class Attention(nn.Module):
         dropout_p = self.dropout_p if self.training else 0.0
         # Attention
         with torch.backends.cuda.sdp_kernel(
-            enable_flash=USE_FLASH_ATTN,
-            # if Flash attention kernel is off, then math kernel needs to be enabled
-            enable_math=(OLD_GPU and dropout_p > 0.0) or MATH_KERNEL_ON,
-            enable_mem_efficient=OLD_GPU,
+                enable_flash=USE_FLASH_ATTN,
+                # if Flash attention kernel is off, then math kernel needs to be enabled
+                enable_math=(OLD_GPU and dropout_p > 0.0) or MATH_KERNEL_ON,
+                enable_mem_efficient=OLD_GPU,
         ):
             out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
 
@@ -264,27 +254,24 @@ class RoPEAttention(Attention):
     """Attention with rotary position encoding."""
 
     def __init__(
-        self,
-        *args,
-        rope_theta=10000.0,
-        # whether to repeat q rope to match k length
-        # this is needed for cross-attention to memories
-        rope_k_repeat=False,
-        feat_sizes=(32, 32),  # [w, h] for stride 16 feats at 512 resolution
-        **kwargs,
+            self,
+            *args,
+            rope_theta=10000.0,
+            # whether to repeat q rope to match k length
+            # this is needed for cross-attention to memories
+            rope_k_repeat=False,
+            feat_sizes=(32, 32),  # [w, h] for stride 16 feats at 512 resolution
+            **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
         self.compute_cis = partial(
-            compute_axial_cis, dim=self.internal_dim // self.num_heads, theta=rope_theta
-        )
+            compute_axial_cis, dim=self.internal_dim // self.num_heads, theta=rope_theta)
         freqs_cis = self.compute_cis(end_x=feat_sizes[0], end_y=feat_sizes[1])
         self.freqs_cis = freqs_cis
         self.rope_k_repeat = rope_k_repeat
 
-    def forward(
-        self, q: Tensor, k: Tensor, v: Tensor, num_k_exclude_rope: int = 0
-    ) -> Tensor:
+    def forward(self, q: Tensor, k: Tensor, v: Tensor, num_k_exclude_rope: int = 0) -> Tensor:
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
@@ -314,10 +301,10 @@ class RoPEAttention(Attention):
         dropout_p = self.dropout_p if self.training else 0.0
         # Attention
         with torch.backends.cuda.sdp_kernel(
-            enable_flash=USE_FLASH_ATTN,
-            # if Flash attention kernel is off, then math kernel needs to be enabled
-            enable_math=(OLD_GPU and dropout_p > 0.0) or MATH_KERNEL_ON,
-            enable_mem_efficient=OLD_GPU,
+                enable_flash=USE_FLASH_ATTN,
+                # if Flash attention kernel is off, then math kernel needs to be enabled
+                enable_math=(OLD_GPU and dropout_p > 0.0) or MATH_KERNEL_ON,
+                enable_mem_efficient=OLD_GPU,
         ):
             out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
 

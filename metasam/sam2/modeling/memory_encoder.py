@@ -10,17 +10,16 @@ from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from sam2.modeling.sam2_utils import DropPath, get_clones, LayerNorm2d
+from sam2.modeling.sam2_utils import DropPath, LayerNorm2d, get_clones
 
 
 class MaskDownSampler(nn.Module):
     """
-    Progressively downsample a mask by total_stride, each time by stride.
-    Note that LayerNorm is applied per *token*, like in ViT.
+    Progressively downsample a mask by total_stride, each time by stride. Note that LayerNorm is applied per
+    *token*, like in ViT.
 
-    With each downsample (by a factor stride**2), channel capacity increases by the same factor.
-    In the end, we linearly project to embed_dim channels.
+    With each downsample (by a factor stride**2), channel capacity increases by the same factor. In the end,
+    we linearly project to embed_dim channels.
     """
 
     def __init__(
@@ -46,8 +45,7 @@ class MaskDownSampler(nn.Module):
                     kernel_size=kernel_size,
                     stride=stride,
                     padding=padding,
-                )
-            )
+                ))
             self.encoder.append(LayerNorm2d(mask_out_chans))
             self.encoder.append(activation())
             mask_in_chans = mask_out_chans
@@ -60,10 +58,11 @@ class MaskDownSampler(nn.Module):
 
 # Lightly adapted from ConvNext (https://github.com/facebookresearch/ConvNeXt)
 class CXBlock(nn.Module):
-    r"""ConvNeXt Block. There are two equivalent implementations:
-    (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, H, W)
-    (2) DwConv -> Permute to (N, H, W, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
-    We use (2) as we find it slightly faster in PyTorch
+    r"""
+    ConvNeXt Block. There are two equivalent implementations: (1) DwConv -> LayerNorm (channels_first) -> 1x1
+    Conv -> GELU -> 1x1 Conv; all in (N, C, H, W) (2) DwConv -> Permute to (N, H, W, C); LayerNorm
+    (channels_last) -> Linear -> GELU -> Linear; Permute back We use (2) as we find it slightly faster in
+    PyTorch.
 
     Args:
         dim (int): Number of input channels.
@@ -89,16 +88,12 @@ class CXBlock(nn.Module):
             groups=dim if use_dwconv else 1,
         )  # depthwise conv
         self.norm = LayerNorm2d(dim, eps=1e-6)
-        self.pwconv1 = nn.Linear(
-            dim, 4 * dim
-        )  # pointwise/1x1 convs, implemented with linear layers
+        self.pwconv1 = nn.Linear(dim, 4 * dim)  # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()
         self.pwconv2 = nn.Linear(4 * dim, dim)
         self.gamma = (
-            nn.Parameter(layer_scale_init_value * torch.ones((dim)), requires_grad=True)
-            if layer_scale_init_value > 0
-            else None
-        )
+            nn.Parameter(layer_scale_init_value *
+                         torch.ones(dim), requires_grad=True) if layer_scale_init_value > 0 else None)
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
@@ -118,6 +113,7 @@ class CXBlock(nn.Module):
 
 
 class Fuser(nn.Module):
+
     def __init__(self, layer, num_layers, dim=None, input_projection=False):
         super().__init__()
         self.proj = nn.Identity()
@@ -136,13 +132,14 @@ class Fuser(nn.Module):
 
 
 class MemoryEncoder(nn.Module):
+
     def __init__(
-        self,
-        out_dim,
-        mask_downsampler,
-        fuser,
-        position_encoding,
-        in_dim=256,  # in_dim of pix_feats
+            self,
+            out_dim,
+            mask_downsampler,
+            fuser,
+            position_encoding,
+            in_dim=256,  # in_dim of pix_feats
     ):
         super().__init__()
 
@@ -161,13 +158,13 @@ class MemoryEncoder(nn.Module):
         masks: torch.Tensor,
         skip_mask_sigmoid: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        ## Process masks
+        # Process masks
         # sigmoid, so that less domain shift from gt masks which are bool
         if not skip_mask_sigmoid:
             masks = F.sigmoid(masks)
         masks = self.mask_downsampler(masks)
 
-        ## Fuse pix_feats and downsampled masks
+        # Fuse pix_feats and downsampled masks
         # in case the visual features are on CPU, cast them to CUDA
         pix_feat = pix_feat.to(masks.device)
 

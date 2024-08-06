@@ -7,11 +7,9 @@
 from typing import Optional
 
 import torch
-from torch import nn, Tensor
-
-from sam2.modeling.sam.transformer import RoPEAttention
-
 from sam2.modeling.sam2_utils import get_activation_fn, get_clones
+from sam2.modeling.sam.transformer import RoPEAttention
+from torch import Tensor, nn
 
 
 class MemoryAttentionLayer(nn.Module):
@@ -100,13 +98,14 @@ class MemoryAttentionLayer(nn.Module):
 
 
 class MemoryAttention(nn.Module):
+
     def __init__(
-        self,
-        d_model: int,
-        pos_enc_at_input: bool,
-        layer: nn.Module,
-        num_layers: int,
-        batch_first: bool = True,  # Do layers expect batch first input?
+            self,
+            d_model: int,
+            pos_enc_at_input: bool,
+            layer: nn.Module,
+            num_layers: int,
+            batch_first: bool = True,  # Do layers expect batch first input?
     ):
         super().__init__()
         self.d_model = d_model
@@ -117,12 +116,12 @@ class MemoryAttention(nn.Module):
         self.batch_first = batch_first
 
     def forward(
-        self,
-        curr: torch.Tensor,  # self-attention inputs
-        memory: torch.Tensor,  # cross-attention inputs
-        curr_pos: Optional[Tensor] = None,  # pos_enc for self-attention inputs
-        memory_pos: Optional[Tensor] = None,  # pos_enc for cross-attention inputs
-        num_obj_ptr_tokens: int = 0,  # number of object pointer *tokens*
+            self,
+            curr: torch.Tensor,  # self-attention inputs
+            memory: torch.Tensor,  # cross-attention inputs
+            curr_pos: Optional[Tensor] = None,  # pos_enc for self-attention inputs
+            memory_pos: Optional[Tensor] = None,  # pos_enc for cross-attention inputs
+            num_obj_ptr_tokens: int = 0,  # number of object pointer *tokens*
     ):
         if isinstance(curr, list):
             assert isinstance(curr_pos, list)
@@ -132,9 +131,7 @@ class MemoryAttention(nn.Module):
                 curr_pos[0],
             )
 
-        assert (
-            curr.shape[1] == memory.shape[1]
-        ), "Batch size must be the same for curr and memory"
+        assert (curr.shape[1] == memory.shape[1]), "Batch size must be the same for curr and memory"
 
         output = curr
         if self.pos_enc_at_input and curr_pos is not None:

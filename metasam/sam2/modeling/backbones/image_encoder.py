@@ -12,6 +12,7 @@ import torch.nn.functional as F
 
 
 class ImageEncoder(nn.Module):
+
     def __init__(
         self,
         trunk: nn.Module,
@@ -31,7 +32,7 @@ class ImageEncoder(nn.Module):
         features, pos = self.neck(self.trunk(sample))
         if self.scalp > 0:
             # Discard the lowest resolution features
-            features, pos = features[: -self.scalp], pos[: -self.scalp]
+            features, pos = features[:-self.scalp], pos[:-self.scalp]
 
         src = features[-1]
         output = {
@@ -43,10 +44,8 @@ class ImageEncoder(nn.Module):
 
 
 class FpnNeck(nn.Module):
-    """
-    A modified variant of Feature Pyramid Network (FPN) neck
-    (we remove output conv and also do bicubic interpolation similar to ViT
-    pos embed interpolation)
+    """A modified variant of Feature Pyramid Network (FPN) neck (we remove output conv and also do bicubic
+    interpolation similar to ViT pos embed interpolation)
     """
 
     def __init__(
@@ -61,11 +60,8 @@ class FpnNeck(nn.Module):
         fuse_type: str = "sum",
         fpn_top_down_levels: Optional[List[int]] = None,
     ):
-        """Initialize the neck
-        :param trunk: the backbone
-        :param position_encoding: the positional encoding to use
-        :param d_model: the dimension of the model
-        :param neck_norm: the normalization to use
+        """Initialize the neck :param trunk: the backbone :param position_encoding: the positional encoding to
+        use :param d_model: the dimension of the model :param neck_norm: the normalization to use.
         """
         super().__init__()
         self.position_encoding = position_encoding
@@ -116,9 +112,7 @@ class FpnNeck(nn.Module):
                     prev_features.to(dtype=torch.float32),
                     scale_factor=2.0,
                     mode=self.fpn_interp_model,
-                    align_corners=(
-                        None if self.fpn_interp_model == "nearest" else False
-                    ),
+                    align_corners=(None if self.fpn_interp_model == "nearest" else False),
                     antialias=False,
                 )
                 prev_features = lateral_features + top_down_features

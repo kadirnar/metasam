@@ -1,7 +1,8 @@
 import os
 import re
 
-import setuptools
+from setuptools import Extension, find_packages, setup
+from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 
 def get_requirements(req_path: str):
@@ -39,7 +40,15 @@ def get_license():
         return re.search(r'^__license__ = [\'"]([^\'"]*)[\'"]', f.read(), re.M).group(1)
 
 
-setuptools.setup(
+# CUDA extension
+ext_modules = [
+    CUDAExtension(
+        'metasam.sam2.csrc.connected_components_cuda', [
+            'metasam/sam2/csrc/connected_components.cu',
+        ])
+]
+
+setup(
     name='metasam',
     version=get_version(),
     author=get_author(),
@@ -50,5 +59,7 @@ setuptools.setup(
     long_description_content_type='text/markdown',
     url='https://github.com/kadirnar/metasam',
     install_requires=INSTALL_REQUIRES,
-    packages=setuptools.find_packages(),
+    packages=find_packages(),
+    ext_modules=ext_modules,
+    cmdclass={'build_ext': BuildExtension},
 )

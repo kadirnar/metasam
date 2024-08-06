@@ -9,11 +9,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
-
 from sam2.modeling.sam2_base import SAM2Base
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from sam2.utils.amg import (
+    MaskData,
     area_from_rle,
     batch_iterator,
     batched_mask_to_box,
@@ -24,16 +23,17 @@ from sam2.utils.amg import (
     generate_crop_boxes,
     is_box_near_crop_edge,
     mask_to_rle_pytorch,
-    MaskData,
     remove_small_regions,
     rle_to_mask,
     uncrop_boxes_xyxy,
     uncrop_masks,
     uncrop_points,
 )
+from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
 
 
 class SAM2AutomaticMaskGenerator:
+
     def __init__(
         self,
         model: SAM2Base,
@@ -55,10 +55,9 @@ class SAM2AutomaticMaskGenerator:
         multimask_output: bool = True,
     ) -> None:
         """
-        Using a SAM 2 model, generates masks for the entire image.
-        Generates a grid of point prompts over the image, then filters
-        low quality and duplicate masks. The default settings are chosen
-        for SAM 2 with a HieraL backbone.
+        Using a SAM 2 model, generates masks for the entire image. Generates a grid of point prompts over the
+        image, then filters low quality and duplicate masks. The default settings are chosen for SAM 2 with a
+        HieraL backbone.
 
         Arguments:
           model (Sam): The SAM 2 model to use for mask prediction.
@@ -103,8 +102,7 @@ class SAM2AutomaticMaskGenerator:
         """
 
         assert (points_per_side is None) != (
-            point_grids is None
-        ), "Exactly one of points_per_side or point_grid must be provided."
+            point_grids is None), "Exactly one of points_per_side or point_grid must be provided."
         if points_per_side is not None:
             self.point_grids = build_all_layer_point_grids(
                 points_per_side,
@@ -179,9 +177,7 @@ class SAM2AutomaticMaskGenerator:
 
         # Encode masks
         if self.output_mode == "coco_rle":
-            mask_data["segmentations"] = [
-                coco_encode_rle(rle) for rle in mask_data["rles"]
-            ]
+            mask_data["segmentations"] = [coco_encode_rle(rle) for rle in mask_data["rles"]]
         elif self.output_mode == "binary_mask":
             mask_data["segmentations"] = [rle_to_mask(rle) for rle in mask_data["rles"]]
         else:
@@ -205,9 +201,7 @@ class SAM2AutomaticMaskGenerator:
 
     def _generate_masks(self, image: np.ndarray) -> MaskData:
         orig_size = image.shape[:2]
-        crop_boxes, layer_idxs = generate_crop_boxes(
-            orig_size, self.crop_n_layers, self.crop_overlap_ratio
-        )
+        crop_boxes, layer_idxs = generate_crop_boxes(orig_size, self.crop_n_layers, self.crop_overlap_ratio)
 
         # Iterate over image crops
         data = MaskData()
@@ -249,10 +243,8 @@ class SAM2AutomaticMaskGenerator:
 
         # Generate masks for this crop in batches
         data = MaskData()
-        for (points,) in batch_iterator(self.points_per_batch, points_for_image):
-            batch_data = self._process_batch(
-                points, cropped_im_size, crop_box, orig_size, normalize=True
-            )
+        for (points, ) in batch_iterator(self.points_per_batch, points_for_image):
+            batch_data = self._process_batch(points, cropped_im_size, crop_box, orig_size, normalize=True)
             data.cat(batch_data)
             del batch_data
         self.predictor.reset_predictor()
@@ -285,12 +277,8 @@ class SAM2AutomaticMaskGenerator:
 
         # Run model on this batch
         points = torch.as_tensor(points, device=self.predictor.device)
-        in_points = self.predictor._transforms.transform_coords(
-            points, normalize=normalize, orig_hw=im_size
-        )
-        in_labels = torch.ones(
-            in_points.shape[0], dtype=torch.int, device=in_points.device
-        )
+        in_points = self.predictor._transforms.transform_coords(points, normalize=normalize, orig_hw=im_size)
+        in_labels = torch.ones(in_points.shape[0], dtype=torch.int, device=in_points.device)
         masks, iou_preds, low_res_masks = self.predictor._predict(
             in_points[:, None, :],
             in_labels[:, None],
@@ -315,22 +303,17 @@ class SAM2AutomaticMaskGenerator:
 
             # Calculate and filter by stability score
             data["stability_score"] = calculate_stability_score(
-                data["masks"], self.mask_threshold, self.stability_score_offset
-            )
+                data["masks"], self.mask_threshold, self.stability_score_offset)
             if self.stability_score_thresh > 0.0:
                 keep_mask = data["stability_score"] >= self.stability_score_thresh
                 data.filter(keep_mask)
         else:
             # One step refinement using previous mask predictions
             in_points = self.predictor._transforms.transform_coords(
-                data["points"], normalize=normalize, orig_hw=im_size
-            )
-            labels = torch.ones(
-                in_points.shape[0], dtype=torch.int, device=in_points.device
-            )
+                data["points"], normalize=normalize, orig_hw=im_size)
+            labels = torch.ones(in_points.shape[0], dtype=torch.int, device=in_points.device)
             masks, ious = self.refine_with_m2m(
-                in_points, labels, data["low_res_masks"], self.points_per_batch
-            )
+                in_points, labels, data["low_res_masks"], self.points_per_batch)
             data["masks"] = masks.squeeze(1)
             data["iou_preds"] = ious.squeeze(1)
 
@@ -339,8 +322,7 @@ class SAM2AutomaticMaskGenerator:
                 data.filter(keep_mask)
 
             data["stability_score"] = calculate_stability_score(
-                data["masks"], self.mask_threshold, self.stability_score_offset
-            )
+                data["masks"], self.mask_threshold, self.stability_score_offset)
             if self.stability_score_thresh > 0.0:
                 keep_mask = data["stability_score"] >= self.stability_score_thresh
                 data.filter(keep_mask)
@@ -350,9 +332,7 @@ class SAM2AutomaticMaskGenerator:
         data["boxes"] = batched_mask_to_box(data["masks"])
 
         # Filter boxes that touch crop boundaries
-        keep_mask = ~is_box_near_crop_edge(
-            data["boxes"], crop_box, [0, 0, orig_w, orig_h]
-        )
+        keep_mask = ~is_box_near_crop_edge(data["boxes"], crop_box, [0, 0, orig_w, orig_h])
         if not torch.all(keep_mask):
             data.filter(keep_mask)
 
@@ -364,12 +344,10 @@ class SAM2AutomaticMaskGenerator:
         return data
 
     @staticmethod
-    def postprocess_small_regions(
-        mask_data: MaskData, min_area: int, nms_thresh: float
-    ) -> MaskData:
+    def postprocess_small_regions(mask_data: MaskData, min_area: int, nms_thresh: float) -> MaskData:
         """
-        Removes small disconnected regions and holes in masks, then reruns
-        box NMS to remove any new duplicates.
+        Removes small disconnected regions and holes in masks, then reruns box NMS to remove any new
+        duplicates.
 
         Edits mask_data in place.
 
@@ -418,9 +396,8 @@ class SAM2AutomaticMaskGenerator:
         new_masks = []
         new_iou_preds = []
 
-        for cur_points, cur_point_labels, low_res_mask in batch_iterator(
-            points_per_batch, points, point_labels, low_res_masks
-        ):
+        for cur_points, cur_point_labels, low_res_mask in batch_iterator(points_per_batch, points,
+                                                                         point_labels, low_res_masks):
             best_masks, best_iou_preds, _ = self.predictor._predict(
                 cur_points[:, None, :],
                 cur_point_labels[:, None],

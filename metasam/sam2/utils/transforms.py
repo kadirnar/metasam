@@ -11,12 +11,9 @@ from torchvision.transforms import Normalize, Resize, ToTensor
 
 
 class SAM2Transforms(nn.Module):
-    def __init__(
-        self, resolution, mask_threshold, max_hole_area=0.0, max_sprinkle_area=0.0
-    ):
-        """
-        Transforms for SAM2.
-        """
+
+    def __init__(self, resolution, mask_threshold, max_hole_area=0.0, max_sprinkle_area=0.0):
+        """Transforms for SAM2."""
         super().__init__()
         self.resolution = resolution
         self.mask_threshold = mask_threshold
@@ -29,8 +26,7 @@ class SAM2Transforms(nn.Module):
             nn.Sequential(
                 Resize((self.resolution, self.resolution)),
                 Normalize(self.mean, self.std),
-            )
-        )
+            ))
 
     def __call__(self, x):
         x = self.to_tensor(x)
@@ -41,15 +37,13 @@ class SAM2Transforms(nn.Module):
         img_batch = torch.stack(img_batch, dim=0)
         return img_batch
 
-    def transform_coords(
-        self, coords: torch.Tensor, normalize=False, orig_hw=None
-    ) -> torch.Tensor:
+    def transform_coords(self, coords: torch.Tensor, normalize=False, orig_hw=None) -> torch.Tensor:
         """
-        Expects a torch tensor with length 2 in the last dimension. The coordinates can be in absolute image or normalized coordinates,
-        If the coords are in absolute image coordinates, normalize should be set to True and original image size is required.
+        Expects a torch tensor with length 2 in the last dimension. The coordinates can be in absolute image
+        or normalized coordinates, If the coords are in absolute image coordinates, normalize should be set to
+        True and original image size is required.
 
-        Returns
-            Un-normalized coordinates in the range of [0, 1] which is expected by the SAM2 model.
+        Returns     Un-normalized coordinates in the range of [0, 1] which is expected by the SAM2 model.
         """
         if normalize:
             assert orig_hw is not None
@@ -61,20 +55,18 @@ class SAM2Transforms(nn.Module):
         coords = coords * self.resolution  # unnormalize coords
         return coords
 
-    def transform_boxes(
-        self, boxes: torch.Tensor, normalize=False, orig_hw=None
-    ) -> torch.Tensor:
+    def transform_boxes(self, boxes: torch.Tensor, normalize=False, orig_hw=None) -> torch.Tensor:
         """
-        Expects a tensor of shape Bx4. The coordinates can be in absolute image or normalized coordinates,
-        if the coords are in absolute image coordinates, normalize should be set to True and original image size is required.
+        Expects a tensor of shape Bx4.
+
+        The coordinates can be in absolute image or normalized coordinates, if the coords are in absolute
+        image coordinates, normalize should be set to True and original image size is required.
         """
         boxes = self.transform_coords(boxes.reshape(-1, 2, 2), normalize, orig_hw)
         return boxes
 
     def postprocess_masks(self, masks: torch.Tensor, orig_hw) -> torch.Tensor:
-        """
-        Perform PostProcessing on output masks.
-        """
+        """Perform PostProcessing on output masks."""
         from sam2.utils.misc import get_connected_components
 
         masks = masks.float()

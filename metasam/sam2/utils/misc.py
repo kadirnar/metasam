@@ -65,7 +65,7 @@ def get_connected_components(mask):
 
 def mask_to_box(masks: torch.Tensor):
     """
-    compute bounding box given an input mask
+    Compute bounding box given an input mask.
 
     Inputs:
     - masks: [B, 1, H, W] boxes, dtype=torch.Tensor
@@ -102,9 +102,7 @@ def _load_img_as_tensor(img_path, image_size):
 
 
 class AsyncVideoFrameLoader:
-    """
-    A list of video frames to be load asynchronously without blocking session start.
-    """
+    """A list of video frames to be load asynchronously without blocking session start."""
 
     def __init__(self, img_paths, image_size, offload_video_to_cpu, img_mean, img_std):
         self.img_paths = img_paths
@@ -143,9 +141,7 @@ class AsyncVideoFrameLoader:
         if img is not None:
             return img
 
-        img, video_height, video_width = _load_img_as_tensor(
-            self.img_paths[index], self.image_size
-        )
+        img, video_height, video_width = _load_img_as_tensor(self.img_paths[index], self.image_size)
         self.video_height = video_height
         self.video_width = video_width
         # normalize by mean and std
@@ -161,12 +157,12 @@ class AsyncVideoFrameLoader:
 
 
 def load_video_frames(
-    video_path,
-    image_size,
-    offload_video_to_cpu,
-    img_mean=(0.485, 0.456, 0.406),
-    img_std=(0.229, 0.224, 0.225),
-    async_loading_frames=False,
+        video_path,
+        image_size,
+        offload_video_to_cpu,
+        img_mean=(0.485, 0.456, 0.406),
+        img_std=(0.229, 0.224, 0.225),
+        async_loading_frames=False,
 ):
     """
     Load the video frames from a directory of JPEG files ("<frame_index>.jpg" format).
@@ -182,9 +178,7 @@ def load_video_frames(
         raise NotImplementedError("Only JPEG frames are supported at this moment")
 
     frame_names = [
-        p
-        for p in os.listdir(jpg_folder)
-        if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
+        p for p in os.listdir(jpg_folder) if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
     ]
     frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
     num_frames = len(frame_names)
@@ -195,9 +189,7 @@ def load_video_frames(
     img_std = torch.tensor(img_std, dtype=torch.float32)[:, None, None]
 
     if async_loading_frames:
-        lazy_images = AsyncVideoFrameLoader(
-            img_paths, image_size, offload_video_to_cpu, img_mean, img_std
-        )
+        lazy_images = AsyncVideoFrameLoader(img_paths, image_size, offload_video_to_cpu, img_mean, img_std)
         return lazy_images, lazy_images.video_height, lazy_images.video_width
 
     images = torch.zeros(num_frames, 3, image_size, image_size, dtype=torch.float32)
@@ -214,9 +206,7 @@ def load_video_frames(
 
 
 def fill_holes_in_mask_scores(mask, max_area):
-    """
-    A post processor to fill small holes in mask scores with area under `max_area`.
-    """
+    """A post processor to fill small holes in mask scores with area under `max_area`."""
     # Holes are those connected components in background with area <= self.max_area
     # (background regions are those with mask scores <= 0)
     assert max_area > 0, "max_area must be positive"
