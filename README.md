@@ -16,7 +16,8 @@
 ## 🛠️ Installation
 
 ```bash
-pip install metasam
+pip install -e .
+python setup.py build_ext --inplace
 ```
 
 ## 🤗 Model Hub

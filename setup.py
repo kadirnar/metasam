@@ -1,7 +1,7 @@
 import os
 import re
 
-from setuptools import Extension, find_packages, setup
+from setuptools import find_packages, setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 
@@ -43,9 +43,12 @@ def get_license():
 # CUDA extension
 ext_modules = [
     CUDAExtension(
-        'metasam.sam2.csrc.connected_components_cuda', [
-            'metasam/sam2/csrc/connected_components.cu',
-        ])
+        name='metasam.sam2._C',
+        sources=['metasam/sam2/csrc/connected_components.cu'],
+        extra_compile_args={
+            'cxx': ['-g'],
+            'nvcc': ['-O2']
+        })
 ]
 
 setup(
@@ -62,4 +65,6 @@ setup(
     packages=find_packages(),
     ext_modules=ext_modules,
     cmdclass={'build_ext': BuildExtension},
+    include_package_data=True,
+    python_requires='>=3.7',
 )
