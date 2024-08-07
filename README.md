@@ -3,7 +3,7 @@
     MetaSam: Packaged version of the Segment Anything 2 Model
 </h2>
 <div>
-    <img width="500" alt="teaser" src="doc/assets/logo.png">
+    <img width="350" alt="teaser" src="doc/assets/logo.png">
 </div>
 <div>
     <a href="https://pypi.org/project/metasam" target="_blank">
