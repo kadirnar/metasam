@@ -1,10 +1,10 @@
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from PIL import Image
-from sam2.build_sam import build_sam2
-from sam2.sam2_image_predictor import SAM2ImagePredictor
+
+from metasam.sam2.build_sam import build_sam2
+from metasam.sam2.sam2_image_predictor import SAM2ImagePredictor
 
 
 class SAM2Wrapper:
@@ -21,8 +21,8 @@ class SAM2Wrapper:
         self.predictor = SAM2ImagePredictor(self.sam2_model)
 
     def set_image(self, image_path):
-        image = Image.open(image_path)
-        self.image = np.array(image.convert("RGB"))
+        self.image = cv2.imread(image_path)
+        self.image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
         self.predictor.set_image(self.image)
 
     def predict(self, point_coords, point_labels, multimask_output=True):
@@ -35,70 +35,55 @@ class SAM2Wrapper:
         return masks[sorted_ind], scores[sorted_ind], logits[sorted_ind]
 
     @staticmethod
-    def show_mask(mask, ax, random_color=False, borders=True):
-        if random_color:
-            color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
-        else:
-            color = np.array([30 / 255, 144 / 255, 255 / 255, 0.6])
-        h, w = mask.shape[-2:]
-        mask = mask.astype(np.uint8)
-        mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-        if borders:
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-            contours = [cv2.approxPolyDP(contour, epsilon=0.01, closed=True) for contour in contours]
-            mask_image = cv2.drawContours(mask_image, contours, -1, (1, 1, 1, 0.5), thickness=2)
-        ax.imshow(mask_image)
+    def apply_mask(image, mask, color, alpha=0.5):
+        """Apply a colored mask to an image without changing the original image colors."""
+        mask = mask.astype(bool)
+        colored_mask = np.zeros_like(image)
+        colored_mask[mask] = color
+        masked_image = np.where(mask[:, :, None], colored_mask, image)
+        return cv2.addWeighted(image, 1 - alpha, masked_image, alpha, 0)
 
     @staticmethod
-    def show_points(coords, labels, ax, marker_size=375):
-        pos_points = coords[labels == 1]
-        neg_points = coords[labels == 0]
-        ax.scatter(
-            pos_points[:, 0],
-            pos_points[:, 1],
-            color='green',
-            marker='*',
-            s=marker_size,
-            edgecolor='white',
-            linewidth=1.25)
-        ax.scatter(
-            neg_points[:, 0],
-            neg_points[:, 1],
-            color='red',
-            marker='*',
-            s=marker_size,
-            edgecolor='white',
-            linewidth=1.25)
+    def draw_points(image, coords, labels, color_positive=(0, 255, 0), color_negative=(0, 0, 255), radius=5):
+        for coord, label in zip(coords, labels):
+            color = color_positive if label == 1 else color_negative
+            cv2.circle(image, tuple(coord.astype(int)), radius, color, -1)
 
     @staticmethod
-    def show_box(box, ax):
-        x0, y0 = box[0], box[1]
-        w, h = box[2] - box[0], box[3] - box[1]
-        ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
+    def draw_box(image, box, color=(0, 255, 0), thickness=2):
+        x1, y1, x2, y2 = map(int, box)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, thickness)
 
     def show_masks(self, masks, scores, point_coords=None, box_coords=None, input_labels=None, borders=True):
-        for i, (mask, score) in enumerate(zip(masks, scores)):
-            plt.figure(figsize=(10, 10))
-            plt.imshow(self.image)
-            self.show_mask(mask, plt.gca(), borders=borders)
-            if point_coords is not None:
-                assert input_labels is not None
-                self.show_points(point_coords, input_labels, plt.gca())
-            if box_coords is not None:
-                self.show_box(box_coords, plt.gca())
-            if len(scores) > 1:
-                plt.title(f"Mask {i+1}, Score: {score:.3f}", fontsize=18)
-            plt.axis('off')
-            plt.show()
+        if len(masks) == 0:
+            print("No masks to display.")
+            return None
 
+        # Find the index of the mask with the highest score
+        best_mask_idx = np.argmax(scores)
+        best_mask = masks[best_mask_idx]
 
-# Usage example:
-if __name__ == "__main__":
-    sam2_wrapper = SAM2Wrapper("checkpoints/sam2_hiera_large.pt", "sam2_hiera_l.yaml")
-    sam2_wrapper.set_image('test.png')
+        # Create a copy of the original image
+        result = self.image.copy()
 
-    input_point = np.array([[500, 640]])
-    input_label = np.array([1])
+        # Apply the mask
+        mask_color = [30, 144, 255]  # RGB color
+        result = self.apply_mask(result, best_mask, mask_color)
 
-    masks, scores, logits = sam2_wrapper.predict(input_point, input_label)
-    sam2_wrapper.show_masks(masks, scores, point_coords=input_point, input_labels=input_label, borders=True)
+        # If borders are requested, draw them
+        if borders:
+            contours, _ = cv2.findContours((best_mask * 255).astype(np.uint8), cv2.RETR_EXTERNAL,
+                                           cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(result, contours, -1, (255, 255, 255), 2)
+
+        # Draw points if provided
+        if point_coords is not None and input_labels is not None:
+            self.draw_points(result, point_coords, input_labels)
+
+        # Draw box if provided
+        if box_coords is not None:
+            self.draw_box(result, box_coords)
+
+        array = result.astype(np.uint8)
+        pil_image = Image.fromarray(array)
+        return pil_image, masks[best_mask_idx], scores[best_mask_idx], result

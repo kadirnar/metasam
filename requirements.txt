@@ -4,3 +4,6 @@ bitsandbytes
 accelerate
 jinja2>=3.1.0
 peft
+opencv-python
+matplotlib
+hydra
