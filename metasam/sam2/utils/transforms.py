@@ -67,7 +67,7 @@ class SAM2Transforms(nn.Module):
 
     def postprocess_masks(self, masks: torch.Tensor, orig_hw) -> torch.Tensor:
         """Perform PostProcessing on output masks."""
-        from sam2.utils.misc import get_connected_components
+        from metasam.sam2.utils.misc import get_connected_components
 
         masks = masks.float()
         if self.max_hole_area > 0:
