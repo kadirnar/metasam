@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+from typing import List, Optional, Tuple
 
 import cv2
 import matplotlib.pyplot as plt
@@ -10,11 +11,21 @@ from PIL import Image
 
 from metasam.sam2.build_sam import build_sam2, build_sam2_video_predictor
 from metasam.sam2.sam2_image_predictor import SAM2ImagePredictor
+from metasam.utils.image_utils import apply_color_mask, draw_bounding_box, draw_points_on_image
 
 
-class SAM2Inference:
+class SAM2ImageInference:
+    """Class for performing inference on images using SAM2 model."""
 
-    def __init__(self, checkpoint_path, model_cfg_path, device="cuda"):
+    def __init__(self, checkpoint_path: str, model_cfg_path: str, device: str = "cuda"):
+        """
+        Initialize the SAM2ImageInference class.
+
+        Args:
+            checkpoint_path (str): Path to the model checkpoint.
+            model_cfg_path (str): Path to the model configuration file.
+            device (str): Device to run the model on ('cuda' or 'cpu').
+        """
         # Initialize CUDA settings
         torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
         if torch.cuda.get_device_properties(0).major >= 8:
@@ -24,13 +35,35 @@ class SAM2Inference:
         # Load the SAM2 model
         self.sam2_model = build_sam2(model_cfg_path, checkpoint_path, device=device)
         self.predictor = SAM2ImagePredictor(self.sam2_model)
+        self.image = None
 
-    def set_image(self, image_path):
+    def load_image(self, image_path: str) -> None:
+        """
+        Load an image for inference.
+
+        Args:
+            image_path (str): Path to the image file.
+        """
         self.image = cv2.imread(image_path)
         self.image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
         self.predictor.set_image(self.image)
 
-    def predict(self, point_coords, point_labels, multimask_output=True):
+    def predict_masks(
+            self,
+            point_coords: np.ndarray,
+            point_labels: np.ndarray,
+            multimask_output: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Predict masks based on input points.
+
+        Args:
+            point_coords (np.ndarray): Coordinates of input points.
+            point_labels (np.ndarray): Labels of input points.
+            multimask_output (bool): Whether to output multiple masks.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: Masks, scores, and logits.
+        """
         masks, scores, logits = self.predictor.predict(
             point_coords=point_coords,
             point_labels=point_labels,
@@ -39,64 +72,67 @@ class SAM2Inference:
         sorted_ind = np.argsort(scores)[::-1]
         return masks[sorted_ind], scores[sorted_ind], logits[sorted_ind]
 
-    @staticmethod
-    def apply_mask(image, mask, color, alpha=0.5):
-        """Apply a colored mask to an image without changing the original image colors."""
-        mask = mask.astype(bool)
-        colored_mask = np.zeros_like(image)
-        colored_mask[mask] = color
-        masked_image = np.where(mask[:, :, None], colored_mask, image)
-        return cv2.addWeighted(image, 1 - alpha, masked_image, alpha, 0)
+    def visualize_prediction(
+            self,
+            masks: np.ndarray,
+            scores: np.ndarray,
+            point_coords: Optional[np.ndarray] = None,
+            box_coords: Optional[Tuple[int, int, int, int]] = None,
+            input_labels: Optional[np.ndarray] = None,
+            draw_borders: bool = True) -> Tuple[Image.Image, np.ndarray, float, np.ndarray]:
+        """
+        Visualize the prediction results.
 
-    @staticmethod
-    def draw_points(image, coords, labels, color_positive=(0, 255, 0), color_negative=(0, 0, 255), radius=5):
-        for coord, label in zip(coords, labels):
-            color = color_positive if label == 1 else color_negative
-            cv2.circle(image, tuple(coord.astype(int)), radius, color, -1)
+        Args:
+            masks (np.ndarray): Predicted masks.
+            scores (np.ndarray): Scores for each mask.
+            point_coords (np.ndarray, optional): Coordinates of input points.
+            box_coords (Tuple[int, int, int, int], optional): Coordinates of bounding box.
+            input_labels (np.ndarray, optional): Labels of input points.
+            draw_borders (bool): Whether to draw borders around the mask.
 
-    @staticmethod
-    def draw_box(image, box, color=(0, 255, 0), thickness=2):
-        x1, y1, x2, y2 = map(int, box)
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, thickness)
-
-    def show_masks(self, masks, scores, point_coords=None, box_coords=None, input_labels=None, borders=True):
+        Returns:
+            Tuple[Image.Image, np.ndarray, float, np.ndarray]:
+                PIL Image, best mask, best score, and result as numpy array.
+        """
         if len(masks) == 0:
             print("No masks to display.")
             return None
 
-        # Find the index of the mask with the highest score
         best_mask_idx = np.argmax(scores)
         best_mask = masks[best_mask_idx]
 
-        # Create a copy of the original image
         result = self.image.copy()
-
-        # Apply the mask
         mask_color = [30, 144, 255]  # RGB color
-        result = self.apply_mask(result, best_mask, mask_color)
+        result = apply_color_mask(result, best_mask, mask_color)
 
-        # If borders are requested, draw them
-        if borders:
+        if draw_borders:
             contours, _ = cv2.findContours((best_mask * 255).astype(np.uint8), cv2.RETR_EXTERNAL,
                                            cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(result, contours, -1, (255, 255, 255), 2)
 
-        # Draw points if provided
         if point_coords is not None and input_labels is not None:
-            self.draw_points(result, point_coords, input_labels)
+            result = draw_points_on_image(result, point_coords, input_labels)
 
-        # Draw box if provided
         if box_coords is not None:
-            self.draw_box(result, box_coords)
+            result = draw_bounding_box(result, box_coords)
 
-        array = result.astype(np.uint8)
-        pil_image = Image.fromarray(array)
+        pil_image = Image.fromarray(result.astype(np.uint8))
         return pil_image, masks[best_mask_idx], scores[best_mask_idx], result
 
 
-class VideoSegmentationModel:
+class SAM2VideoInference:
+    """Class for performing inference on videos using SAM2 model."""
 
-    def __init__(self, checkpoint_path, model_cfg_path, device="cuda"):
+    def __init__(self, checkpoint_path: str, model_cfg_path: str, device: str = "cuda"):
+        """
+        Initialize the SAM2VideoInference class.
+
+        Args:
+            checkpoint_path (str): Path to the model checkpoint.
+            model_cfg_path (str): Path to the model configuration file.
+            device (str): Device to run the model on ('cuda' or 'cpu').
+        """
         # Initialize CUDA settings
         torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
         if torch.cuda.get_device_properties(0).major >= 8:
@@ -110,8 +146,15 @@ class VideoSegmentationModel:
         self.video_capture = None
         self.total_frames = 0
         self.temp_dir = None
+        self.frame_names = []
 
-    def set_video(self, video_path):
+    def load_video(self, video_path: str) -> None:
+        """
+        Load a video for inference and extract its frames.
+
+        Args:
+            video_path (str): Path to the input video file.
+        """
         self.video_path = video_path
         self.video_capture = cv2.VideoCapture(video_path)
         self.total_frames = int(self.video_capture.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -132,13 +175,24 @@ class VideoSegmentationModel:
         if not self.frame_names:
             raise RuntimeError(f"No frames could be extracted from the video: {video_path}")
 
-        print(f"Extracted {len(self.frame_names)} frames to {self.temp_dir}")
-
         # Initialize the predictor with the temporary directory
         self.inference_state = self.predictor.init_state(video_path=self.temp_dir)
         self.predictor.reset_state(self.inference_state)
 
-    def add_points(self, frame_idx, obj_id, points, labels):
+    def add_points(self, frame_idx: int, obj_id: int, points: np.ndarray,
+                   labels: np.ndarray) -> Tuple[List[int], torch.Tensor]:
+        """
+        Add points for object segmentation.
+
+        Args:
+            frame_idx (int): Index of the frame to add points to.
+            obj_id (int): ID of the object to segment.
+            points (np.ndarray): Array of point coordinates.
+            labels (np.ndarray): Array of point labels.
+
+        Returns:
+            Tuple[List[int], torch.Tensor]: Object IDs and mask logits.
+        """
         _, out_obj_ids, out_mask_logits = self.predictor.add_new_points(
             inference_state=self.inference_state,
             frame_idx=frame_idx,
@@ -148,7 +202,8 @@ class VideoSegmentationModel:
         )
         return out_obj_ids, out_mask_logits
 
-    def propagate_video(self):
+    def propagate_masks(self) -> None:
+        """Propagate segmentation through the video frames."""
         self.video_segments = {}
         for out_frame_idx, out_obj_ids, out_mask_logits in self.predictor.propagate_in_video(
                 self.inference_state):
@@ -157,57 +212,68 @@ class VideoSegmentationModel:
                 for i, out_obj_id in enumerate(out_obj_ids)
             }
 
-    @staticmethod
-    def show_mask(mask, ax, obj_id=None, random_color=False):
-        if random_color:
-            color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)
-        else:
-            cmap = plt.get_cmap("tab10")
-            cmap_idx = 0 if obj_id is None else obj_id
-            color = np.array([*cmap(cmap_idx)[:3], 0.6])
-        h, w = mask.shape[-2:]
-        mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-        ax.imshow(mask_image)
+    def save_segmented_video(self, output_path: str, alpha: float = 0.5) -> None:
+        """
+        Save the segmented video with colored masks.
 
-    @staticmethod
-    def show_points(coords, labels, ax, marker_size=200):
-        pos_points = coords[labels == 1]
-        neg_points = coords[labels == 0]
-        ax.scatter(
-            pos_points[:, 0],
-            pos_points[:, 1],
-            color='green',
-            marker='*',
-            s=marker_size,
-            edgecolor='white',
-            linewidth=1.25)
-        ax.scatter(
-            neg_points[:, 0],
-            neg_points[:, 1],
-            color='red',
-            marker='*',
-            s=marker_size,
-            edgecolor='white',
-            linewidth=1.25)
+        Args:
+            output_path (str): Path to save the output video.
+            alpha (float): Transparency of the mask (0-1).
+        """
+        if not self.video_segments:
+            raise RuntimeError("No segmentation data available. Run propagate_masks() first.")
 
-    def visualize_frame(self, frame_idx, points=None, labels=None):
-        plt.figure(figsize=(12, 8))
-        plt.title(f"frame {frame_idx}")
-        frame_path = os.path.join(self.temp_dir, self.frame_names[frame_idx])
+        # Get video properties
+        frame_path = os.path.join(self.temp_dir, self.frame_names[0])
         frame = cv2.imread(frame_path)
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        plt.imshow(frame)
+        if frame is None:
+            raise RuntimeError(f"Could not read frame from {frame_path}")
 
-        if points is not None and labels is not None:
-            self.show_points(points, labels, plt.gca())
+        height, width = frame.shape[:2]
+        fps = self.video_capture.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 30  # Default to 30 fps if unable to get from video capture
 
-        if frame_idx in self.video_segments:
-            for obj_id, mask in self.video_segments[frame_idx].items():
-                self.show_mask(mask, plt.gca(), obj_id=obj_id)
+        # Create VideoWriter object
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-        plt.show()
+        if not out.isOpened():
+            raise RuntimeError(f"Could not open output video file: {output_path}")
 
-    def visualize_video(self, stride=15):
-        plt.close("all")
-        for out_frame_idx in range(0, self.total_frames, stride):
-            self.visualize_frame(out_frame_idx)
+        # Create color map for masks
+        cmap = plt.get_cmap("tab10")
+
+        for frame_idx in range(self.total_frames):
+            frame_path = os.path.join(self.temp_dir, self.frame_names[frame_idx])
+            frame = cv2.imread(frame_path)
+            if frame is None:
+                print(f"Warning: Could not read frame {frame_idx} from {frame_path}")
+                continue
+
+            if frame_idx in self.video_segments:
+                for obj_id, mask in self.video_segments[frame_idx].items():
+                    # Remove the extra dimension if present
+                    if mask.ndim == 3 and mask.shape[0] == 1:
+                        mask = mask.squeeze(0)
+
+                    if mask.shape != frame.shape[:2]:
+                        mask = cv2.resize(
+                            mask.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST)
+
+                    # Create colored mask
+                    color = np.array(cmap(obj_id % 10)[:3]) * 255
+                    frame = apply_color_mask(frame, mask, color, alpha)
+
+            # Write the frame
+            out.write(frame)
+
+        # Release the VideoWriter
+        out.release()
+
+    def cleanup(self) -> None:
+        """Clean up resources used by the model."""
+        if self.video_capture:
+            self.video_capture.release()
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
